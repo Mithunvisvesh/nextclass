@@ -11,6 +11,8 @@ export type CalendarEntryType =
 export interface CalendarEntry {
   id: string;
   date: string; // ISO format 'YYYY-MM-DD'
+  startDate?: string;
+  endDate?: string;
   title: string;
   type: CalendarEntryType;
   description?: string;

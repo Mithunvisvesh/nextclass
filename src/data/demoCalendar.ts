@@ -208,7 +208,7 @@ export const DEMO_OVERRIDES: DateOverride[] = [
     id: 'ovr-3',
     date: '2026-09-25',
     type: 'room_change',
-    targetClassId: 'fri-2', // Neural Networks & Deep Learning
+    targetClassId: 'fri-1', // Neural Networks & Deep Learning
     overrideData: {
       room: 'A406'
     },

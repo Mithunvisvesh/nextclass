@@ -20,6 +20,8 @@ export interface TimetableClass {
   courseCode: string;
   courseName: string;
   faculty: string;
+  instructor?: string;
+  color?: string;
   dayOfWeek: DayOfWeek;
   startTime: string; // 'HH:mm' 24-hr format
   endTime: string;   // 'HH:mm' 24-hr format

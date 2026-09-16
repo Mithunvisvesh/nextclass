@@ -6,18 +6,20 @@ import { WeeklyTimetable } from '../types/timetable';
 import { AcademicCalendar } from '../types/calendar';
 import { DateOverride } from '../types/override';
 
-describe('Schedule Engine — getScheduleForDate', () => {
-  // Test 1: Normal Weekday (Monday without overrides)
-  it('1. correctly computes a normal weekday schedule', () => {
+describe('Schedule Engine — getScheduleForDate (Corrected Timetable Fixtures)', () => {
+  // Test 1: Normal Weekday (Monday with 8:10 AM start and 6 classes)
+  it('1. correctly computes a normal weekday schedule with 8:10 AM start slot', () => {
     // 2026-09-28 is a normal Monday
-    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, [], '08:00');
+    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, [], '07:30');
     expect(schedule.actualDayOfWeek).toBe('Monday');
     expect(schedule.effectiveSourceDay).toBe('Monday');
     expect(schedule.isHoliday).toBe(false);
     expect(schedule.isSpecialTimetable).toBe(false);
-    expect(schedule.classes.length).toBe(5);
+    expect(schedule.classes.length).toBe(6);
+    // Verified against PDF: First slot is 8:10 - 9:00 Slot A Machine Learning
     expect(schedule.classes[0].courseCode).toBe('23CSE301');
-    expect(schedule.classes[0].startTime).toBe('09:00');
+    expect(schedule.classes[0].startTime).toBe('08:10');
+    expect(schedule.classes[0].endTime).toBe('09:00');
   });
 
   // Test 2: Weekend (Normal Sunday)
@@ -32,23 +34,23 @@ describe('Schedule Engine — getScheduleForDate', () => {
   // Test 3: Holiday
   it('3. recognizes holidays and excludes regular classes', () => {
     // 2026-09-14 is Ganesh Chaturthi (Monday)
-    const schedule = getScheduleForDate('2026-09-14', DEMO_TIMETABLE, DEMO_CALENDAR, [], '09:00');
+    const schedule = getScheduleForDate('2026-09-14', DEMO_TIMETABLE, DEMO_CALENDAR, [], '08:30');
     expect(schedule.isHoliday).toBe(true);
     expect(schedule.holidayTitle).toContain('Ganesh Chaturthi');
     expect(schedule.classes.length).toBe(0);
   });
 
-  // Test 4: Official Special Timetable Day
+  // Test 4: Official Special Timetable Day (Oct 1 Thursday follows Monday)
   it('4. applies official special timetable day (Oct 1 Thursday follows Monday)', () => {
     // 2026-10-01 is Thursday, but calendar says "Monday Timetable for all"
-    const schedule = getScheduleForDate('2026-10-01', DEMO_TIMETABLE, DEMO_CALENDAR, [], '08:00');
+    const schedule = getScheduleForDate('2026-10-01', DEMO_TIMETABLE, DEMO_CALENDAR, [], '07:45');
     expect(schedule.actualDayOfWeek).toBe('Thursday');
     expect(schedule.effectiveSourceDay).toBe('Monday');
     expect(schedule.isSpecialTimetable).toBe(true);
     expect(schedule.specialTimetableNote).toContain('Monday Timetable for all');
-    // Should have 5 Monday classes instead of 6 Thursday classes
-    expect(schedule.classes.length).toBe(5);
-    expect(schedule.classes[0].courseCode).toBe('23CSE301'); // Monday 9 AM
+    expect(schedule.classes.length).toBe(6);
+    expect(schedule.classes[0].courseCode).toBe('23CSE301');
+    expect(schedule.classes[0].startTime).toBe('08:10');
   });
 
   // Test 5: User Override for Source Day
@@ -62,11 +64,11 @@ describe('Schedule Engine — getScheduleForDate', () => {
         createdAt: '2026-09-16T10:00:00Z'
       }
     ];
-    const schedule = getScheduleForDate('2026-09-22', DEMO_TIMETABLE, DEMO_CALENDAR, userOverride, '08:00');
+    const schedule = getScheduleForDate('2026-09-22', DEMO_TIMETABLE, DEMO_CALENDAR, userOverride, '07:30');
     expect(schedule.actualDayOfWeek).toBe('Tuesday');
     expect(schedule.effectiveSourceDay).toBe('Friday');
     expect(schedule.isSpecialTimetable).toBe(true);
-    expect(schedule.classes.some(c => c.courseName === 'Embedded Systems Lab')).toBe(true);
+    expect(schedule.classes.length).toBe(7); // Friday has 7 classes
   });
 
   // Test 6: Cancelled Class Override
@@ -80,14 +82,14 @@ describe('Schedule Engine — getScheduleForDate', () => {
         createdAt: '2026-09-16T10:00:00Z'
       }
     ];
-    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, overrides, '08:00');
-    expect(schedule.classes.length).toBe(4);
+    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, overrides, '07:30');
+    expect(schedule.classes.length).toBe(5);
     expect(schedule.classes.find(c => c.id === 'mon-1')).toBeUndefined();
   });
 
-  // Test 7: Swapped Classes Override
+  // Test 7: Swapped Classes Override (Sep 21)
   it('7. swaps two classes on a specific date', () => {
-    // 2026-09-21: Swap mon-2 (NLP 09:50-10:40) and mon-3 (CN 11:00-11:50)
+    // 2026-09-21: Swap mon-2 (NLP 09:00-09:50) and mon-3 (CN 09:50-10:40)
     const swapOverride: DateOverride[] = [
       {
         id: 'ovr-swap',
@@ -98,18 +100,18 @@ describe('Schedule Engine — getScheduleForDate', () => {
         createdAt: '2026-09-16T10:00:00Z'
       }
     ];
-    const schedule = getScheduleForDate('2026-09-21', DEMO_TIMETABLE, DEMO_CALENDAR, swapOverride, '08:00');
+    const schedule = getScheduleForDate('2026-09-21', DEMO_TIMETABLE, DEMO_CALENDAR, swapOverride, '07:30');
     
     const nlp = schedule.classes.find(c => c.id === 'mon-2');
     const cn = schedule.classes.find(c => c.id === 'mon-3');
 
     expect(nlp).toBeDefined();
     expect(cn).toBeDefined();
-    // In swapped state, NLP should now be at 11:00 and CN at 09:50
-    expect(nlp?.startTime).toBe('11:00');
-    expect(nlp?.endTime).toBe('11:50');
-    expect(cn?.startTime).toBe('09:50');
-    expect(cn?.endTime).toBe('10:40');
+    // Swapped: NLP now at 09:50, CN now at 09:00
+    expect(nlp?.startTime).toBe('09:50');
+    expect(nlp?.endTime).toBe('10:40');
+    expect(cn?.startTime).toBe('09:00');
+    expect(cn?.endTime).toBe('09:50');
     expect(nlp?.isOverride).toBe(true);
     expect(cn?.isOverride).toBe(true);
   });
@@ -133,8 +135,8 @@ describe('Schedule Engine — getScheduleForDate', () => {
         createdAt: '2026-09-16T10:00:00Z'
       }
     ];
-    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, extraOverride, '08:00');
-    expect(schedule.classes.length).toBe(6);
+    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, extraOverride, '07:30');
+    expect(schedule.classes.length).toBe(7);
     const extra = schedule.classes.find(c => c.courseCode === '23CSE351');
     expect(extra).toBeDefined();
     expect(extra?.isOverride).toBe(true);
@@ -153,7 +155,7 @@ describe('Schedule Engine — getScheduleForDate', () => {
         createdAt: '2026-09-16T10:00:00Z'
       }
     ];
-    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, roomOverride, '08:00');
+    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, roomOverride, '07:30');
     const ml = schedule.classes.find(c => c.id === 'mon-1');
     expect(ml?.room).toBe('Auditorium');
     expect(ml?.originalValues?.room).toBe('C404');
@@ -168,15 +170,15 @@ describe('Schedule Engine — getScheduleForDate', () => {
         date: '2026-09-28',
         type: 'time_change',
         targetClassId: 'mon-5',
-        overrideData: { startTime: '15:00', endTime: '16:00' },
+        overrideData: { startTime: '12:00', endTime: '12:50' },
         createdAt: '2026-09-16T10:00:00Z'
       }
     ];
-    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, timeOverride, '08:00');
+    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, timeOverride, '07:30');
     const toc = schedule.classes.find(c => c.id === 'mon-5');
-    expect(toc?.startTime).toBe('15:00');
-    expect(toc?.endTime).toBe('16:00');
-    expect(toc?.originalValues?.startTime).toBe('14:00');
+    expect(toc?.startTime).toBe('12:00');
+    expect(toc?.endTime).toBe('12:50');
+    expect(toc?.originalValues?.startTime).toBe('11:50');
   });
 
   // Test 11: Multiple changes on same date
@@ -198,8 +200,8 @@ describe('Schedule Engine — getScheduleForDate', () => {
         createdAt: '2026-09-16T10:00:00Z'
       }
     ];
-    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, multiOverrides, '08:00');
-    expect(schedule.classes.length).toBe(4);
+    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, multiOverrides, '07:30');
+    expect(schedule.classes.length).toBe(5);
     expect(schedule.classes.find(c => c.id === 'mon-1')).toBeUndefined();
     expect(schedule.classes.find(c => c.id === 'mon-2')?.room).toBe('Lab B');
   });
@@ -218,41 +220,41 @@ describe('Schedule Engine — getScheduleForDate', () => {
     ];
 
     // Sep 21: Swapped
-    const sep21 = getScheduleForDate('2026-09-21', DEMO_TIMETABLE, DEMO_CALENDAR, swapOverride, '08:00');
-    expect(sep21.classes.find(c => c.id === 'mon-2')?.startTime).toBe('11:00');
+    const sep21 = getScheduleForDate('2026-09-21', DEMO_TIMETABLE, DEMO_CALENDAR, swapOverride, '07:30');
+    expect(sep21.classes.find(c => c.id === 'mon-2')?.startTime).toBe('09:50');
 
     // Sep 28 (next Monday): MUST BE ORIGINAL UNTOUCHED BASELINE
-    const sep28 = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, swapOverride, '08:00');
-    expect(sep28.classes.find(c => c.id === 'mon-2')?.startTime).toBe('09:50');
-    expect(sep28.classes.find(c => c.id === 'mon-3')?.startTime).toBe('11:00');
+    const sep28 = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, swapOverride, '07:30');
+    expect(sep28.classes.find(c => c.id === 'mon-2')?.startTime).toBe('09:00');
+    expect(sep28.classes.find(c => c.id === 'mon-3')?.startTime).toBe('09:50');
     expect(sep28.classes.find(c => c.id === 'mon-2')?.isOverride).toBeFalsy();
 
     // Baseline object in memory must also be untouched
     const baselineMon2 = DEMO_TIMETABLE.classes.find(c => c.id === 'mon-2');
-    expect(baselineMon2?.startTime).toBe('09:50');
+    expect(baselineMon2?.startTime).toBe('09:00');
   });
 
-  // Test 13: Free Periods Calculation
+  // Test 13: Free Periods Calculation (Tea Break and Lunch Break)
   it('13. calculates free periods / breaks between classes', () => {
-    // On Monday: mon-2 ends at 10:40, mon-3 starts at 11:00 (20 min break)
-    // mon-4 ends at 12:40, mon-5 starts at 14:00 (80 min lunch break)
-    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, [], '08:00');
+    // On Monday: mon-3 ends at 10:40, mon-4 starts at 11:00 (20 min tea break)
+    // mon-5 ends at 12:40, mon-6 starts at 13:25 (45 min lunch break)
+    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, [], '07:30');
     expect(schedule.freePeriods.length).toBeGreaterThanOrEqual(2);
     
     const recess = schedule.freePeriods.find(p => p.startTime === '10:40' && p.endTime === '11:00');
     expect(recess).toBeDefined();
     expect(recess?.durationMinutes).toBe(20);
 
-    const lunch = schedule.freePeriods.find(p => p.startTime === '12:40' && p.endTime === '14:00');
+    const lunch = schedule.freePeriods.find(p => p.startTime === '12:40' && p.endTime === '13:25');
     expect(lunch).toBeDefined();
-    expect(lunch?.durationMinutes).toBe(80);
+    expect(lunch?.durationMinutes).toBe(45);
     expect(lunch?.label).toContain('Lunch Break');
   });
 
-  // Test 14: Active Class Detection (Happening)
-  it('14. accurately identifies currently happening class and progress', () => {
-    // Machine Learning is 09:00 - 09:50. Current time: 09:25 (halfway = 50%)
-    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, [], '09:25');
+  // Test 14: Active Class Detection (Happening at 8:35 AM)
+  it('14. accurately identifies currently happening class and progress at 08:35 AM', () => {
+    // Machine Learning is 08:10 - 09:00 (50 mins). At 08:35, 25 mins elapsed = 50%
+    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, [], '08:35');
     expect(schedule.currentClass).not.toBeNull();
     expect(schedule.currentClass?.courseCode).toBe('23CSE301');
     expect(schedule.currentClass?.status).toBe('happening');
@@ -260,17 +262,17 @@ describe('Schedule Engine — getScheduleForDate', () => {
   });
 
   // Test 15: Next Class Detection (Upcoming)
-  it('15. accurately identifies next class', () => {
-    // Current time: 09:25. Next class at 09:50 is mon-2 (NLP)
-    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, [], '09:25');
+  it('15. accurately identifies next upcoming class', () => {
+    // Current time: 08:35. Next class at 09:00 is mon-2 (NLP)
+    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, [], '08:35');
     expect(schedule.nextClass).not.toBeNull();
     expect(schedule.nextClass?.courseCode).toBe('23CSE471');
     expect(schedule.nextClass?.status).toBe('upcoming');
   });
 
-  // Test 16: No Upcoming Class when Day is Over
+  // Test 16: End of Day Detection
   it('16. reports no upcoming or happening class after end of day', () => {
-    // Last class ends at 14:50. Current time: 17:00
+    // Last class (mon-6 Embedded Lab) ends at 15:40. At 17:00, all are completed
     const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, [], '17:00');
     expect(schedule.currentClass).toBeNull();
     expect(schedule.nextClass).toBeNull();
@@ -299,29 +301,29 @@ describe('Schedule Engine — getScheduleForDate', () => {
       entries: []
     };
     const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, emptyCalendar, [], '09:00');
-    expect(schedule.classes.length).toBe(5);
+    expect(schedule.classes.length).toBe(6);
     expect(schedule.isHoliday).toBe(false);
   });
 
   // Test 19: Chronological sorting preserved after out-of-order overrides
-  it('19. keeps classes sorted chronologically even when extra classes are added', () => {
+  it('19. keeps classes sorted chronologically even when extra early class is added', () => {
     const extraOverride: DateOverride[] = [
       {
-        id: 'ovr-morning',
+        id: 'ovr-early',
         date: '2026-09-28',
         type: 'extra',
         overrideData: {
           id: 'early-bird',
           courseCode: 'EARLY101',
           courseName: 'Zero Period',
-          startTime: '08:00',
-          endTime: '08:45',
+          startTime: '07:30',
+          endTime: '08:05',
           room: 'C404'
         },
         createdAt: '2026-09-16T10:00:00Z'
       }
     ];
-    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, extraOverride, '07:30');
+    const schedule = getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, extraOverride, '07:00');
     expect(schedule.classes[0].courseCode).toBe('EARLY101');
     expect(schedule.classes[1].courseCode).toBe('23CSE301');
   });
@@ -345,14 +347,15 @@ describe('Schedule Engine — getScheduleForDate', () => {
     expect(schedule.classes.length).toBe(0);
   });
 
-  // Test 21: Special Timetable on Saturday (e.g. 31-Oct Sat follows Friday)
+  // Test 21: Special Timetable on Saturday (31-Oct Saturday follows Friday Timetable)
   it('21. applies special timetable on weekend (31-Oct Saturday follows Friday Timetable)', () => {
-    const schedule = getScheduleForDate('2026-10-31', DEMO_TIMETABLE, DEMO_CALENDAR, [], '08:00');
+    const schedule = getScheduleForDate('2026-10-31', DEMO_TIMETABLE, DEMO_CALENDAR, [], '07:30');
     expect(schedule.actualDayOfWeek).toBe('Saturday');
     expect(schedule.effectiveSourceDay).toBe('Friday');
     expect(schedule.isSpecialTimetable).toBe(true);
-    expect(schedule.classes.length).toBe(6); // Friday has 6 classes
-    expect(schedule.classes.some(c => c.courseName === 'Embedded Systems Lab')).toBe(true);
+    expect(schedule.classes.length).toBe(7); // Friday has 7 classes
+    expect(schedule.classes[0].courseName).toBe('Neural Networks & Deep Learning');
+    expect(schedule.classes[0].startTime).toBe('08:10');
   });
 
   // Test 22: Unknown/Malformed override types handled safely
@@ -368,5 +371,24 @@ describe('Schedule Engine — getScheduleForDate', () => {
     expect(() => {
       getScheduleForDate('2026-09-28', DEMO_TIMETABLE, DEMO_CALENDAR, badOverride, '09:00');
     }).not.toThrow();
+  });
+
+  // Test 23: Multi-hour lab duration verification (Tuesday CN Lab 8:10 - 10:25)
+  it('23. accurately computes multi-hour lab slot (Tuesday CN Lab is 135 minutes)', () => {
+    const schedule = getScheduleForDate('2026-09-29', DEMO_TIMETABLE, DEMO_CALENDAR, [], '07:30');
+    const cnLab = schedule.classes.find(c => c.id === 'tue-1');
+    expect(cnLab).toBeDefined();
+    expect(cnLab?.startTime).toBe('08:10');
+    expect(cnLab?.endTime).toBe('10:25');
+    expect(cnLab?.type).toBe('lab');
+  });
+
+  // Test 24: Tuesday afternoon lab slot (ML Lab 10:50 - 13:05)
+  it('24. accurately computes midday lab slot (Tuesday ML Lab is 10:50 - 13:05)', () => {
+    const schedule = getScheduleForDate('2026-09-29', DEMO_TIMETABLE, DEMO_CALENDAR, [], '07:30');
+    const mlLab = schedule.classes.find(c => c.id === 'tue-2');
+    expect(mlLab).toBeDefined();
+    expect(mlLab?.startTime).toBe('10:50');
+    expect(mlLab?.endTime).toBe('13:05');
   });
 });
