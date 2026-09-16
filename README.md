@@ -164,13 +164,9 @@ Generates a static distribution in the `dist/` directory.
 
 ## 📚 Project Documentation
 
-- [AGENTS.md](AGENTS.md): Architectural invariants and instructions for future coding agents.
-- [SKILLS.md](SKILLS.md): Technical competencies and engineering patterns.
 - [PRD.md](PRD.md): Product requirements document, user stories, and acceptance criteria.
 - [DATA.md](DATA.md): Data schemas, entity models, and storage mapping.
-- [PHASES.md](PHASES.md): Phased execution roadmap and implementation milestones.
-- [API.md](API.md): Internal application interfaces and helper functions.
-- [LOGS.md](LOGS.md): Concise development engineering logs.
+- [Reference Documents](docs/reference/): Source academic calendar and timetable PDFs.
 
 ---
 
