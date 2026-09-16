@@ -8,8 +8,8 @@ NextClass is a smart, local-first academic schedule application designed for col
 
 ## 🚀 Live Demo & Presentation
 
-- **Web Application URL**: [https://mithun54.github.io/nextclass/](https://mithun54.github.io/nextclass/)
-- **GitHub Repository**: [https://github.com/mithun54/nextclass](https://github.com/mithun54/nextclass)
+- **Web Application URL**: [https://mithunvisvesh.github.io/nextclass/](https://mithunvisvesh.github.io/nextclass/)
+- **GitHub Repository**: [https://github.com/Mithunvisvesh/nextclass](https://github.com/Mithunvisvesh/nextclass)
 - **Zero Installation Required**: Runs directly in Safari (iOS), Chrome (Android), or desktop browsers.
 
 ---
@@ -105,7 +105,7 @@ The schedule engine evaluates each day deterministically via `getScheduleForDate
 ### Installation
 ```bash
 # Clone repository
-git clone https://github.com/mithun54/nextclass.git
+git clone https://github.com/Mithunvisvesh/nextclass.git
 cd nextclass
 
 # Install dependencies
