@@ -376,6 +376,7 @@ export function parseTimetable(input: ExtractedPdf | Uint8Array | string): Parse
     slot: string;
   }[] = [
     // Monday: AS (08:10-09:00), A (09:00-09:50), PE I (09:50-10:40), B (11:00-11:50), PE II (11:50-12:40), C (14:00-14:50)
+    { day: 'Monday', startTime: '08:10', endTime: '09:00', slot: 'A' },
     { day: 'Monday', startTime: '09:00', endTime: '09:50', slot: 'A' },
     { day: 'Monday', startTime: '09:50', endTime: '10:40', slot: 'PE I' },
     { day: 'Monday', startTime: '11:00', endTime: '11:50', slot: 'B' },
@@ -403,10 +404,14 @@ export function parseTimetable(input: ExtractedPdf | Uint8Array | string): Parse
     { day: 'Thursday', startTime: '14:00', endTime: '14:50', slot: 'EVS' },
     { day: 'Thursday', startTime: '15:40', endTime: '16:30', slot: 'B' },
 
-    // Friday: PE II (11:00-11:50), COUNSELLING (11:50-12:40), EVALUATION (14:00-14:50), CIR (14:50-15:40)
+    // Friday: PE II (11:00-11:50), COUNSELLING (11:50-12:40), EVALUATION (14:00-14:50), CIR (14:50-15:40), A (15:40-16:30), B (16:30-17:20), D (17:20-18:10)
     { day: 'Friday', startTime: '11:00', endTime: '11:50', slot: 'PE II' },
     { day: 'Friday', startTime: '11:50', endTime: '12:40', slot: 'COUNSELLING' },
+    { day: 'Friday', startTime: '14:00', endTime: '14:50', slot: 'EVALUATION' },
     { day: 'Friday', startTime: '14:50', endTime: '15:40', slot: 'CIR' },
+    { day: 'Friday', startTime: '15:40', endTime: '16:30', slot: 'A' },
+    { day: 'Friday', startTime: '16:30', endTime: '17:20', slot: 'B' },
+    { day: 'Friday', startTime: '17:20', endTime: '18:10', slot: 'D' },
   ];
 
   // Add the continuous lab blocks directly
