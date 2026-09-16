@@ -337,7 +337,7 @@ export const SettingsScreen: React.FC = () => {
               setSimulatedDateTime('2026-09-15', '08:30');
             }}
           >
-            <Text style={[styles.presetText, { color: colors.text }]}>Tue 08:30 (OS Lab)</Text>
+            <Text style={[styles.presetText, { color: colors.text }]}>Tue 08:30 (Networks Lab)</Text>
           </TouchableOpacity>
 
           <TouchableOpacity

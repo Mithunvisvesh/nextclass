@@ -60,19 +60,23 @@ const STORAGE_KEYS = {
   DEMO_OVERRIDES: 'nextclass_demo_overrides',
 };
 
-// Universal storage adapter helper (async / sync fallback)
+// Universal storage adapter helper (async / sync / in-memory test fallback)
+const inMemoryStore = new Map<string, string>();
+
 const storage = {
   async getItem(key: string): Promise<string | null> {
     try {
       if (typeof AsyncStorage !== 'undefined' && AsyncStorage.getItem) {
-        return await AsyncStorage.getItem(key);
+        const item = await AsyncStorage.getItem(key);
+        if (item !== null) return item;
       }
       if (typeof window !== 'undefined' && window.localStorage) {
-        return window.localStorage.getItem(key);
+        const item = window.localStorage.getItem(key);
+        if (item !== null) return item;
       }
-      return null;
+      return inMemoryStore.get(key) || null;
     } catch {
-      return null;
+      return inMemoryStore.get(key) || null;
     }
   },
   async setItem(key: string, value: string): Promise<void> {
@@ -83,8 +87,9 @@ const storage = {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem(key, value);
       }
+      inMemoryStore.set(key, value);
     } catch {
-      // safe fallback
+      inMemoryStore.set(key, value);
     }
   },
   async removeItem(key: string): Promise<void> {
@@ -95,8 +100,9 @@ const storage = {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.removeItem(key);
       }
+      inMemoryStore.delete(key);
     } catch {
-      // safe fallback
+      inMemoryStore.delete(key);
     }
   }
 };
@@ -220,6 +226,10 @@ export const mobileStorageService = {
       calendar: DEMO_CALENDAR,
       overrides: DEMO_OVERRIDES
     };
+  },
+
+  async resetDemoData(): Promise<AppStateData> {
+    return this.resetDemoDataToDefaults();
   },
 
   // --- BACKUP JSON EXPORT / IMPORT ---

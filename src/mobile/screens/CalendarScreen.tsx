@@ -19,7 +19,11 @@ import {
   Clock,
   Play,
   CheckCircle2,
+  Plus,
+  Trash2,
 } from 'lucide-react-native';
+import { CalendarEventModal } from '../components/modals/CalendarEventModal';
+import { CalendarEntry } from '../../types/calendar';
 import {
   formatDatePretty,
   parseTimeToMinutes,
@@ -36,11 +40,15 @@ export const CalendarScreen: React.FC = () => {
     activeDate,
     setSimulatedDateTime,
     setActiveTab,
+    addCalendarEntry,
+    deleteCalendarEntry,
   } = useMobileSchedule();
   const { colors } = useTheme();
 
   // Selected date defaults to activeDate or today
   const [selectedDate, setSelectedDate] = useState<string>(activeDate || getTodayIsoString());
+  const [eventModalVisible, setEventModalVisible] = useState(false);
+  const [selectedEntry, setSelectedEntry] = useState<CalendarEntry | null>(null);
 
   // Current view month/year
   const initialDateObj = new Date(selectedDate);
@@ -245,17 +253,29 @@ export const CalendarScreen: React.FC = () => {
             </Text>
           </View>
 
-          {/* Quick Simulate Button */}
-          <TouchableOpacity
-            style={[styles.simBtn, { backgroundColor: colors.surfaceVariant }]}
-            onPress={() => {
-              setSimulatedDateTime(selectedDate, '08:15');
-              setActiveTab('today');
-            }}
-          >
-            <Play size={12} color={colors.primary} />
-            <Text style={[styles.simBtnText, { color: colors.primary }]}>Simulate Day</Text>
-          </TouchableOpacity>
+          <View style={styles.actionBtnRow}>
+            <TouchableOpacity
+              style={[styles.addEventBtn, { backgroundColor: colors.primary }]}
+              onPress={() => {
+                setSelectedEntry(null);
+                setEventModalVisible(true);
+              }}
+            >
+              <Plus size={13} color="#FFFFFF" />
+              <Text style={styles.addEventBtnText}>Add Event</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.simBtn, { backgroundColor: colors.surfaceVariant }]}
+              onPress={() => {
+                setSimulatedDateTime(selectedDate, '08:15');
+                setActiveTab('today');
+              }}
+            >
+              <Play size={12} color={colors.primary} />
+              <Text style={[styles.simBtnText, { color: colors.primary }]}>Simulate</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Holiday Banner */}
@@ -302,6 +322,23 @@ export const CalendarScreen: React.FC = () => {
           </View>
         )}
       </View>
+
+      {/* Calendar Event Modal */}
+      <CalendarEventModal
+        visible={eventModalVisible}
+        onClose={() => setEventModalVisible(false)}
+        onSave={async (entry) => {
+          if (entry.id) {
+            await deleteCalendarEntry(entry.id);
+          }
+          await addCalendarEntry(entry);
+        }}
+        onDelete={async (id) => {
+          await deleteCalendarEntry(id);
+        }}
+        initialData={selectedEntry}
+        defaultDate={selectedDate}
+      />
     </ScrollView>
   );
 };
@@ -426,6 +463,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     marginTop: 2,
+  },
+  actionBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  addEventBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  addEventBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   simBtn: {
     flexDirection: 'row',
