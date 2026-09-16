@@ -63,8 +63,10 @@ interface MobileScheduleContextType {
   addTimetableClass: (c: Omit<TimetableClass, 'id'>) => Promise<void>;
   updateTimetableClass: (c: TimetableClass) => Promise<void>;
   deleteTimetableClass: (id: string) => Promise<void>;
+  importTimetableClasses: (classes: Omit<TimetableClass, 'id'>[], mode: 'replace' | 'append') => Promise<void>;
   addCalendarEntry: (entry: Omit<CalendarEntry, 'id'>) => Promise<void>;
   deleteCalendarEntry: (id: string) => Promise<void>;
+  importCalendarEntries: (entries: Omit<CalendarEntry, 'id'>[], mode: 'replace' | 'append') => Promise<void>;
   addOverride: (override: Omit<DateOverride, 'id' | 'createdAt'>) => Promise<void>;
   updateOverride: (override: DateOverride) => Promise<void>;
   deleteOverride: (id: string) => Promise<void>;
@@ -214,11 +216,11 @@ export const MobileScheduleProvider: React.FC<{ children: React.ReactNode }> = (
     await mobileStorageService.setActiveMode('demo');
     setDemoData(freshDemo);
     setActiveMode('demo');
-    // Set simulator to a good demo date (Sep 21, 09:15 AM)
-    setIsSimulationActive(true);
-    setSimulatedDate('2026-09-21');
-    setSimulatedTime('09:15');
-    setActiveDate('2026-09-21');
+    // Demo mode uses actual device date and time by default
+    setIsSimulationActive(false);
+    setSimulatedDate(undefined);
+    setSimulatedTime(undefined);
+    setActiveDate(getTodayIsoString());
   };
 
   const exitDemoMode = async () => {
@@ -330,6 +332,33 @@ export const MobileScheduleProvider: React.FC<{ children: React.ReactNode }> = (
     }
   };
 
+  const importTimetableClasses = async (
+    classes: Omit<TimetableClass, 'id'>[],
+    mode: 'replace' | 'append'
+  ) => {
+    const newClasses: TimetableClass[] = classes.map((c, idx) => ({
+      ...c,
+      id: `cls-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+    }));
+    const updated = {
+      ...activeDataset,
+      timetable: {
+        ...activeDataset.timetable,
+        classes:
+          mode === 'replace'
+            ? newClasses
+            : [...activeDataset.timetable.classes, ...newClasses],
+      },
+    };
+    if (activeMode === 'demo') {
+      setDemoData(updated);
+      await mobileStorageService.saveDemoData(updated);
+    } else {
+      setUserData(updated);
+      await mobileStorageService.saveUserData(updated);
+    }
+  };
+
   const addCalendarEntry = async (entry: Omit<CalendarEntry, 'id'>) => {
     const newEntry: CalendarEntry = {
       ...entry,
@@ -358,6 +387,33 @@ export const MobileScheduleProvider: React.FC<{ children: React.ReactNode }> = (
         ...activeDataset.calendar,
         entries: activeDataset.calendar.entries.filter(item => item.id !== id)
       }
+    };
+    if (activeMode === 'demo') {
+      setDemoData(updated);
+      await mobileStorageService.saveDemoData(updated);
+    } else {
+      setUserData(updated);
+      await mobileStorageService.saveUserData(updated);
+    }
+  };
+
+  const importCalendarEntries = async (
+    entries: Omit<CalendarEntry, 'id'>[],
+    mode: 'replace' | 'append'
+  ) => {
+    const newEntries: CalendarEntry[] = entries.map((e, idx) => ({
+      ...e,
+      id: `cal-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+    }));
+    const updated = {
+      ...activeDataset,
+      calendar: {
+        ...activeDataset.calendar,
+        entries:
+          mode === 'replace'
+            ? newEntries
+            : [...activeDataset.calendar.entries, ...newEntries],
+      },
     };
     if (activeMode === 'demo') {
       setDemoData(updated);
@@ -483,8 +539,10 @@ export const MobileScheduleProvider: React.FC<{ children: React.ReactNode }> = (
         addTimetableClass,
         updateTimetableClass,
         deleteTimetableClass,
+        importTimetableClasses,
         addCalendarEntry,
         deleteCalendarEntry,
+        importCalendarEntries,
         addOverride,
         updateOverride,
         deleteOverride,

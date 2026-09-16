@@ -5,6 +5,7 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
+  Alert,
 } from 'react-native';
 import { useMobileSchedule } from '../../context/MobileScheduleContext';
 import { useTheme } from '../../theme/theme';
@@ -21,6 +22,8 @@ import {
   CheckCircle2,
   Plus,
   Trash2,
+  FileText,
+  CalendarCheck,
 } from 'lucide-react-native';
 import { CalendarEventModal } from '../components/modals/CalendarEventModal';
 import { CalendarEntry } from '../../types/calendar';
@@ -29,6 +32,9 @@ import {
   parseTimeToMinutes,
   getTodayIsoString,
 } from '../../core/timeUtils';
+import { pickAndParseCalendar } from '../../services/pdf/fileImportService';
+import { CalendarReviewModal } from '../components/modals/CalendarReviewModal';
+import { ParsedCalendarResult } from '../../services/pdf/calendarParser';
 
 const WEEK_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -42,6 +48,7 @@ export const CalendarScreen: React.FC = () => {
     setActiveTab,
     addCalendarEntry,
     deleteCalendarEntry,
+    importCalendarEntries,
   } = useMobileSchedule();
   const { colors } = useTheme();
 
@@ -49,6 +56,10 @@ export const CalendarScreen: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string>(activeDate || getTodayIsoString());
   const [eventModalVisible, setEventModalVisible] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<CalendarEntry | null>(null);
+
+  const [isParsing, setIsParsing] = useState(false);
+  const [calendarResult, setCalendarResult] = useState<ParsedCalendarResult | null>(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
 
   // Current view month/year
   const initialDateObj = new Date(selectedDate);
@@ -95,147 +106,178 @@ export const CalendarScreen: React.FC = () => {
     daysArray.push(d);
   }
 
-  // Helper to format YYYY-MM-DD
-  const formatIso = (year: number, month: number, day: number) => {
-    const mm = String(month + 1).padStart(2, '0');
-    const dd = String(day).padStart(2, '0');
-    return `${year}-${mm}-${dd}`;
+  const getDateIso = (day: number) => {
+    const m = (currentMonth + 1).toString().padStart(2, '0');
+    const d = day.toString().padStart(2, '0');
+    return `${currentYear}-${m}-${d}`;
   };
 
-  // Projected schedule for selectedDate
+  // Schedule for currently selected date
   const scheduleForSelected = getSchedule(selectedDate);
+  const { classes, freePeriods } = scheduleForSelected;
 
-  // Timeline items for selected date
+  // Interleave classes & breaks
   type TimelineItem =
-    | { type: 'class'; data: typeof scheduleForSelected.classes[0]; sortKey: number }
-    | { type: 'break'; data: typeof scheduleForSelected.freePeriods[0]; sortKey: number };
+    | { type: 'class'; data: typeof classes[0]; sortKey: number }
+    | { type: 'break'; data: typeof freePeriods[0]; sortKey: number };
 
   const timelineItems: TimelineItem[] = [
-    ...scheduleForSelected.classes.map(c => ({
+    ...classes.map(c => ({
       type: 'class' as const,
       data: c,
       sortKey: parseTimeToMinutes(c.startTime),
     })),
-    ...scheduleForSelected.freePeriods.map(p => ({
+    ...freePeriods.map(p => ({
       type: 'break' as const,
       data: p,
       sortKey: parseTimeToMinutes(p.startTime),
     })),
   ].sort((a, b) => a.sortKey - b.sortKey);
 
+  // Calendar entries for selected date
+  const selectedDateEvents = calendar.entries.filter(e => e.date === selectedDate);
+
+  const handleImportCalendar = async () => {
+    setIsParsing(true);
+    try {
+      const res = await pickAndParseCalendar();
+      if (!res.success) {
+        if (!res.isCancelled) {
+          Alert.alert('PDF Import Error', res.error);
+        }
+        return;
+      }
+      setCalendarResult(res.result);
+      setShowReviewModal(true);
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Month Navigator */}
-      <View style={[styles.monthCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <View style={styles.monthHeader}>
-          <TouchableOpacity onPress={prevMonth} style={styles.navBtn}>
-            <ChevronLeft size={20} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.monthTitle, { color: colors.text }]}>
-            {monthNames[currentMonth]} {currentYear}
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} showsVerticalScrollIndicator={false}>
+      {/* Missing Calendar Empty State Card */}
+      {calendar.entries.length === 0 && (
+        <View style={[styles.emptyCalendarCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <CalendarCheck size={28} color={colors.primary} />
+          <Text style={[styles.emptyCalTitle, { color: colors.text }]}>No academic calendar yet</Text>
+          <Text style={[styles.emptyCalDesc, { color: colors.textSecondary }]}>
+            Import your academic calendar PDF or add events manually.
           </Text>
-          <TouchableOpacity onPress={nextMonth} style={styles.navBtn}>
-            <ChevronRight size={20} color={colors.text} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Days of week */}
-        <View style={styles.weekDaysRow}>
-          {WEEK_DAYS.map((wd, i) => (
-            <Text
-              key={wd}
-              style={[
-                styles.weekDayText,
-                { color: i === 0 || i === 6 ? colors.textTertiary : colors.textSecondary },
-              ]}
+          <View style={styles.emptyCalActions}>
+            <TouchableOpacity
+              style={[styles.importBtnLarge, { backgroundColor: colors.primary }]}
+              onPress={handleImportCalendar}
+              disabled={isParsing}
             >
-              {wd}
-            </Text>
-          ))}
+              <FileText size={16} color="#FFFFFF" />
+              <Text style={styles.importBtnLargeText}>Import Academic Calendar PDF</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.outlineBtn, { borderColor: colors.primary }]}
+              onPress={() => {
+                setSelectedEntry(null);
+                setEventModalVisible(true);
+              }}
+            >
+              <Plus size={16} color={colors.primary} />
+              <Text style={[styles.outlineBtnText, { color: colors.primary }]}>Add Event Manually</Text>
+            </TouchableOpacity>
+          </View>
         </View>
+      )}
 
-        {/* Calendar Grid */}
-        <View style={styles.grid}>
-          {daysArray.map((dayNum, idx) => {
-            if (dayNum === null) {
-              return <View key={`pad-${idx}`} style={styles.emptyDayCell} />;
-            }
+      {/* Month Navigator */}
+      <View style={[styles.monthBar, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+        <TouchableOpacity onPress={prevMonth} style={styles.navBtn}>
+          <ChevronLeft size={22} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={[styles.monthTitle, { color: colors.text }]}>
+          {monthNames[currentMonth]} {currentYear}
+        </Text>
+        <TouchableOpacity onPress={nextMonth} style={styles.navBtn}>
+          <ChevronRight size={22} color={colors.text} />
+        </TouchableOpacity>
+      </View>
 
-            const dateStr = formatIso(currentYear, currentMonth, dayNum);
-            const isSelected = dateStr === selectedDate;
-            const isToday = dateStr === getTodayIsoString();
+      {/* Weekday Row */}
+      <View style={styles.weekdayRow}>
+        {WEEK_DAYS.map(w => (
+          <Text key={w} style={[styles.weekdayText, { color: colors.textTertiary }]}>
+            {w}
+          </Text>
+        ))}
+      </View>
 
-            // Check events / overrides for indicators
-            const calEntries = calendar.entries.filter(e => {
-              if (e.date) return e.date === dateStr;
-              if (e.startDate && e.endDate) return dateStr >= e.startDate && dateStr <= e.endDate;
-              return false;
-            });
-            const hasOverride = overrides.some(o => o.date === dateStr);
-            const hasHoliday = calEntries.some(e => e.type === 'holiday' || e.type === 'vacation');
-            const hasSpecial = calEntries.some(e => e.type === 'special_timetable');
-            const hasExam = calEntries.some(e => e.type === 'exam');
+      {/* Calendar Grid */}
+      <View style={styles.grid}>
+        {daysArray.map((day, idx) => {
+          if (day === null) {
+            return <View key={`empty-${idx}`} style={styles.dayCell} />;
+          }
 
-            return (
-              <TouchableOpacity
-                key={`day-${dateStr}`}
+          const iso = getDateIso(day);
+          const isSelected = iso === selectedDate;
+          const isToday = iso === getTodayIsoString();
+
+          const calEntry = calendar.entries.find(e => e.date === iso);
+          const hasOverride = overrides.some(o => o.date === iso);
+          const isHoliday = calEntry?.type === 'holiday';
+          const isSpecial = calEntry?.type === 'special_timetable';
+
+          return (
+            <TouchableOpacity
+              key={`day-${day}`}
+              style={[
+                styles.dayCell,
+                isSelected && [styles.selectedCell, { borderColor: colors.primary }],
+                isToday && !isSelected && styles.todayCell,
+              ]}
+              onPress={() => setSelectedDate(iso)}
+              activeOpacity={0.7}
+            >
+              <View
                 style={[
-                  styles.dayCell,
-                  isSelected && [styles.selectedCell, { backgroundColor: colors.primary }],
-                  isToday && !isSelected && [styles.todayCell, { borderColor: colors.primary }],
+                  styles.dayNumWrap,
+                  isSelected && { backgroundColor: colors.primary },
+                  isToday && !isSelected && { backgroundColor: colors.surfaceVariant },
                 ]}
-                onPress={() => setSelectedDate(dateStr)}
               >
                 <Text
                   style={[
-                    styles.dayCellText,
-                    {
-                      color: isSelected
-                        ? '#FFFFFF'
-                        : isToday
-                        ? colors.primary
-                        : colors.text,
-                      fontWeight: isSelected || isToday ? '800' : '500',
-                    },
+                    styles.dayNum,
+                    { color: isSelected ? '#FFFFFF' : isToday ? colors.primary : colors.text },
+                    isSelected && { fontWeight: '800' },
                   ]}
                 >
-                  {dayNum}
+                  {day}
                 </Text>
+              </View>
 
-                {/* Dot Indicators */}
-                <View style={styles.dotRow}>
-                  {hasHoliday && <View style={[styles.dot, { backgroundColor: '#EF4444' }]} />}
-                  {hasSpecial && <View style={[styles.dot, { backgroundColor: '#F59E0B' }]} />}
-                  {hasExam && <View style={[styles.dot, { backgroundColor: '#3B82F6' }]} />}
-                  {hasOverride && <View style={[styles.dot, { backgroundColor: '#8B5CF6' }]} />}
-                </View>
-              </TouchableOpacity>
-            );
-          })}
+              {/* Status Indicator Dots */}
+              <View style={styles.dotRow}>
+                {isHoliday && <View style={[styles.dot, { backgroundColor: '#EF4444' }]} />}
+                {isSpecial && <View style={[styles.dot, { backgroundColor: '#F59E0B' }]} />}
+                {hasOverride && <View style={[styles.dot, { backgroundColor: '#3B82F6' }]} />}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Legend */}
+      <View style={[styles.legend, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
+        <View style={styles.legendItem}>
+          <View style={[styles.dot, { backgroundColor: '#EF4444' }]} />
+          <Text style={[styles.legendText, { color: colors.textSecondary }]}>Holiday</Text>
         </View>
-
-        {/* Legend */}
-        <View style={[styles.legendRow, { borderTopColor: colors.border }]}>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#EF4444' }]} />
-            <Text style={[styles.legendText, { color: colors.textTertiary }]}>Holiday</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#F59E0B' }]} />
-            <Text style={[styles.legendText, { color: colors.textTertiary }]}>Day Order</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#3B82F6' }]} />
-            <Text style={[styles.legendText, { color: colors.textTertiary }]}>Exam</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#8B5CF6' }]} />
-            <Text style={[styles.legendText, { color: colors.textTertiary }]}>Override</Text>
-          </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.dot, { backgroundColor: '#F59E0B' }]} />
+          <Text style={[styles.legendText, { color: colors.textSecondary }]}>Special Timetable</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.dot, { backgroundColor: '#3B82F6' }]} />
+          <Text style={[styles.legendText, { color: colors.textSecondary }]}>Override Active</Text>
         </View>
       </View>
 
@@ -254,6 +296,15 @@ export const CalendarScreen: React.FC = () => {
           </View>
 
           <View style={styles.actionBtnRow}>
+            <TouchableOpacity
+              style={[styles.importBtnSmall, { backgroundColor: colors.surfaceVariant, borderColor: colors.border }]}
+              onPress={handleImportCalendar}
+              disabled={isParsing}
+            >
+              <FileText size={13} color={colors.primary} />
+              <Text style={[styles.importBtnSmallText, { color: colors.primary }]}>Import PDF</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.addEventBtn, { backgroundColor: colors.primary }]}
               onPress={() => {
@@ -277,6 +328,35 @@ export const CalendarScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Selected Date Calendar Events */}
+        {selectedDateEvents.length > 0 && (
+          <View style={styles.eventsContainer}>
+            {selectedDateEvents.map(evt => (
+              <View
+                key={evt.id}
+                style={[styles.eventBadge, { backgroundColor: colors.surface, borderColor: colors.border }]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.eventTitleText, { color: colors.text }]}>{evt.title}</Text>
+                  <Text style={[styles.eventTypeSubtitle, { color: colors.textSecondary }]}>
+                    {evt.type === 'special_timetable'
+                      ? `Special Order: Runs ${evt.timetableSourceDay || 'Altered'} Schedule`
+                      : evt.type.toUpperCase()}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.deleteEvtBtn}
+                  onPress={() => deleteCalendarEntry(evt.id)}
+                  accessibilityLabel="Delete event"
+                >
+                  <Trash2 size={15} color="#EF4444" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* Holiday Banner */}
         {scheduleForSelected.isHoliday ? (
@@ -328,16 +408,27 @@ export const CalendarScreen: React.FC = () => {
         visible={eventModalVisible}
         onClose={() => setEventModalVisible(false)}
         onSave={async (entry) => {
-          if (entry.id) {
-            await deleteCalendarEntry(entry.id);
-          }
           await addCalendarEntry(entry);
+          setEventModalVisible(false);
         }}
+        defaultDate={selectedDate}
+        initialData={selectedEntry}
         onDelete={async (id) => {
           await deleteCalendarEntry(id);
+          setEventModalVisible(false);
         }}
-        initialData={selectedEntry}
-        defaultDate={selectedDate}
+      />
+
+      {/* Calendar PDF Review Modal */}
+      <CalendarReviewModal
+        visible={showReviewModal}
+        parsedResult={calendarResult}
+        onClose={() => setShowReviewModal(false)}
+        hasExistingEntries={calendar.entries.length > 0}
+        onConfirm={async (newEntries, mode) => {
+          await importCalendarEntries(newEntries, mode);
+          setShowReviewModal(false);
+        }}
       />
     </ScrollView>
   );
@@ -347,39 +438,79 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  content: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 28,
-  },
-  monthCard: {
+  emptyCalendarCard: {
+    margin: 16,
+    padding: 20,
     borderRadius: 16,
     borderWidth: 1,
-    padding: 16,
-    marginBottom: 16,
+    alignItems: 'center',
   },
-  monthHeader: {
+  emptyCalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  emptyCalDesc: {
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 14,
+    lineHeight: 18,
+  },
+  emptyCalActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  importBtnLarge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  importBtnLargeText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  outlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  outlineBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  monthBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  navBtn: {
-    padding: 6,
-    borderRadius: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
   },
   monthTitle: {
     fontSize: 17,
     fontWeight: '800',
   },
-  weekDaysRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-    paddingHorizontal: 4,
+  navBtn: {
+    padding: 6,
   },
-  weekDayText: {
-    width: 38,
+  weekdayRow: {
+    flexDirection: 'row',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+  },
+  weekdayText: {
+    flex: 1,
     textAlign: 'center',
     fontSize: 12,
     fontWeight: '700',
@@ -387,36 +518,35 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  emptyDayCell: {
-    width: 38,
-    height: 44,
+    paddingHorizontal: 8,
   },
   dayCell: {
-    width: 38,
-    height: 44,
+    width: `${100 / 7}%`,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 10,
-    marginVertical: 2,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    borderRadius: 12,
   },
   selectedCell: {
-    shadowColor: '#2563EB',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  todayCell: {
     borderWidth: 1.5,
   },
-  dayCellText: {
-    fontSize: 13,
+  todayCell: {},
+  dayNumWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayNum: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   dotRow: {
     flexDirection: 'row',
-    gap: 2,
+    gap: 3,
     marginTop: 2,
     height: 4,
   },
@@ -425,29 +555,26 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
   },
-  legendRow: {
+  legend: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'center',
+    gap: 16,
+    paddingVertical: 10,
     borderTopWidth: 1,
-    marginTop: 12,
-    paddingTop: 10,
+    marginTop: 8,
   },
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-  },
-  legendDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    gap: 5,
   },
   legendText: {
     fontSize: 11,
     fontWeight: '600',
   },
   selectedSection: {
-    marginTop: 4,
+    padding: 16,
+    paddingBottom: 32,
   },
   selectedHeader: {
     flexDirection: 'row',
@@ -461,7 +588,6 @@ const styles = StyleSheet.create({
   },
   selectedSub: {
     fontSize: 12,
-    fontWeight: '500',
     marginTop: 2,
   },
   actionBtnRow: {
@@ -469,23 +595,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  importBtnSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  importBtnSmallText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
   addEventBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 9,
+    paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
   },
   addEventBtnText: {
+    color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '700',
-    color: '#FFFFFF',
   },
   simBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
@@ -494,18 +633,40 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
+  eventsContainer: {
+    marginBottom: 12,
+    gap: 6,
+  },
+  eventBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  eventTitleText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  eventTypeSubtitle: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  deleteEvtBtn: {
+    padding: 6,
+  },
   holidayBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     padding: 14,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     marginBottom: 14,
   },
   holidayBoxTitle: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
   },
   holidayBoxSub: {
     fontSize: 12,
@@ -521,21 +682,21 @@ const styles = StyleSheet.create({
   },
   specialBoxText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
     flex: 1,
   },
   timelineList: {
-    marginTop: 4,
+    gap: 8,
   },
   emptyBox: {
     padding: 24,
     borderRadius: 14,
     borderWidth: 1,
     alignItems: 'center',
-    gap: 8,
   },
   emptyBoxText: {
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
+    marginTop: 8,
   },
 });

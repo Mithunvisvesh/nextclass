@@ -1,11 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  RefreshControl,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useMobileSchedule } from '../../context/MobileScheduleContext';
 import { useTheme } from '../../theme/theme';
@@ -22,6 +23,9 @@ import {
   AlertCircle,
   PlusCircle,
   CheckCircle2,
+  FileText,
+  CalendarCheck,
+  RotateCcw,
 } from 'lucide-react-native';
 import {
   formatDatePretty,
@@ -29,6 +33,11 @@ import {
   parseTimeToMinutes,
   getCurrentTimeIso,
 } from '../../core/timeUtils';
+import { pickAndParseTimetable, pickAndParseCalendar } from '../../services/pdf/fileImportService';
+import { TimetableReviewModal } from '../components/modals/TimetableReviewModal';
+import { CalendarReviewModal } from '../components/modals/CalendarReviewModal';
+import { ParsedTimetableResult } from '../../services/pdf/timetableParser';
+import { ParsedCalendarResult } from '../../services/pdf/calendarParser';
 
 export const TodayScreen: React.FC = () => {
   const {
@@ -36,10 +45,22 @@ export const TodayScreen: React.FC = () => {
     tomorrowSchedule,
     setActiveTab,
     simulatedTime,
-    isSimulationActive,
     enterDemoMode,
+    exitDemoMode,
+    activeMode,
+    timetable,
+    calendar,
+    importTimetableClasses,
+    importCalendarEntries,
   } = useMobileSchedule();
   const { colors } = useTheme();
+
+  const [isParsing, setIsParsing] = useState(false);
+  const [timetableResult, setTimetableResult] = useState<ParsedTimetableResult | null>(null);
+  const [showTimetableReview, setShowTimetableReview] = useState(false);
+
+  const [calendarResult, setCalendarResult] = useState<ParsedCalendarResult | null>(null);
+  const [showCalendarReview, setShowCalendarReview] = useState(false);
 
   const currentTime = simulatedTime || getCurrentTimeIso();
   const currentMinutes = parseTimeToMinutes(currentTime);
@@ -86,276 +107,399 @@ export const TodayScreen: React.FC = () => {
     ? parseTimeToMinutes(nextClass.startTime) - currentMinutes
     : 0;
 
+  const handleImportTimetable = async () => {
+    setIsParsing(true);
+    try {
+      const res = await pickAndParseTimetable();
+      if (!res.success) {
+        if (!res.isCancelled) {
+          Alert.alert('PDF Import Error', res.error);
+        }
+        return;
+      }
+      setTimetableResult(res.result);
+      setShowTimetableReview(true);
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
+  const handleImportCalendar = async () => {
+    setIsParsing(true);
+    try {
+      const res = await pickAndParseCalendar();
+      if (!res.success) {
+        if (!res.isCancelled) {
+          Alert.alert('PDF Import Error', res.error);
+        }
+        return;
+      }
+      setCalendarResult(res.result);
+      setShowCalendarReview(true);
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Date & Schedule Subtitle */}
-      <View style={styles.dateHeader}>
-        <View style={styles.dateTitleWrap}>
-          <Text style={[styles.dateTitle, { color: colors.text }]}>
-            {formatDatePretty(todaySchedule.date)}
-          </Text>
-          <View style={styles.scheduleTypeRow}>
-            {isSpecialTimetable ? (
-              <View style={styles.specialTag}>
-                <Sparkles size={14} color="#D97706" />
-                <Text style={styles.specialTagText}>
-                  {specialTimetableNote || `Follows ${effectiveSourceDay} Schedule`}
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ScrollView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Explicit Demo Data Label */}
+        {activeMode === 'demo' && (
+          <View style={[styles.demoModeBanner, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
+            <View style={styles.demoBannerHeader}>
+              <Sparkles size={16} color="#D97706" />
+              <Text style={styles.demoBannerTitle}>Demo Data (Sample Reference)</Text>
+            </View>
+            <Text style={styles.demoBannerDesc}>
+              Showing sample CSE-C timetable and 2026–27 academic calendar. Strictly isolated from your personal schedule.
+            </Text>
+            <TouchableOpacity style={styles.demoSwitchBtn} onPress={exitDemoMode} activeOpacity={0.8}>
+              <RotateCcw size={14} color="#92400E" />
+              <Text style={styles.demoSwitchText}>Switch to Personal Schedule</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Date & Schedule Subtitle */}
+        <View style={styles.dateHeader}>
+          <View style={styles.dateTitleWrap}>
+            <Text style={[styles.dateTitle, { color: colors.text }]}>
+              {formatDatePretty(todaySchedule.date)}
+            </Text>
+            <View style={styles.scheduleTypeRow}>
+              {isSpecialTimetable ? (
+                <View style={styles.specialTag}>
+                  <Sparkles size={14} color="#D97706" />
+                  <Text style={styles.specialTagText}>
+                    {specialTimetableNote || `Follows ${effectiveSourceDay} Schedule`}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={[styles.daySubtitle, { color: colors.textSecondary }]}>
+                  {actualDayOfWeek} Schedule
                 </Text>
+              )}
+            </View>
+          </View>
+
+          {appliedOverrides.length > 0 && (
+            <TouchableOpacity
+              style={[styles.overrideBadge, { backgroundColor: '#EFF6FF', borderColor: colors.primary }]}
+              onPress={() => setActiveTab('changes')}
+            >
+              <Text style={[styles.overrideBadgeText, { color: colors.primary }]}>
+                {appliedOverrides.length} change{appliedOverrides.length > 1 ? 's' : ''} active
+              </Text>
+              <ArrowRight size={12} color={colors.primary} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Missing Academic Calendar Banner */}
+        {calendar.entries.length === 0 && (
+          <View style={[styles.calMissingCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <CalendarCheck size={20} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.calMissingTitle, { color: colors.text }]}>No academic calendar yet</Text>
+              <Text style={[styles.calMissingSub, { color: colors.textSecondary }]}>
+                Import your academic calendar PDF or add events manually.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.calImportBtn, { backgroundColor: colors.surfaceVariant }]}
+              onPress={handleImportCalendar}
+              disabled={isParsing}
+            >
+              <Text style={[styles.calImportBtnText, { color: colors.primary }]}>Import PDF</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Holiday Banner */}
+        {isHoliday ? (
+          <View style={[styles.holidayCard, { backgroundColor: '#ECFDF5', borderColor: '#6EE7B7' }]}>
+            <View style={styles.holidayIconWrap}>
+              <PartyPopper size={28} color="#059669" />
+            </View>
+            <Text style={[styles.holidayTitle, { color: '#065F46' }]}>
+              {holidayTitle || 'Official College Holiday'}
+            </Text>
+            <Text style={[styles.holidaySub, { color: '#047857' }]}>
+              No academic classes scheduled today. Enjoy your day off!
+            </Text>
+          </View>
+        ) : isSpecialTimetable ? (
+          <View style={[styles.alertCard, { backgroundColor: '#FFFBEB', borderColor: '#FCD34D' }]}>
+            <AlertCircle size={18} color="#D97706" />
+            <Text style={[styles.alertText, { color: '#92400E' }]}>
+              Special Academic Day: {specialTimetableNote || `Running ${effectiveSourceDay} timetable`}.
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Hero Section */}
+        {!isHoliday && (
+          <View style={styles.heroSection}>
+            {currentClass ? (
+              /* HAPPENING NOW */
+              <View style={[styles.heroCard, { backgroundColor: colors.primary }]}>
+                <View style={styles.heroTopRow}>
+                  <View style={styles.liveIndicator}>
+                    <View style={styles.livePulse} />
+                    <Text style={styles.liveText}>HAPPENING NOW</Text>
+                  </View>
+                  <View style={styles.timeRemainingPill}>
+                    <Clock size={12} color="#FFFFFF" />
+                    <Text style={styles.timeRemainingText}>
+                      {minutesRemaining > 0 ? `${minutesRemaining}m left` : 'Ending now'}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={styles.heroCourseName} numberOfLines={2}>
+                  {currentClass.courseName}
+                </Text>
+                <Text style={styles.heroCourseCode}>
+                  {currentClass.courseCode} • {currentClass.type}
+                </Text>
+
+                {/* Progress bar */}
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressBar,
+                      { width: `${Math.min(100, Math.max(0, currentClass.progressPercent || 0))}%` },
+                    ]}
+                  />
+                </View>
+
+                <View style={styles.heroMetaRow}>
+                  <View style={styles.metaItem}>
+                    <Clock size={14} color="#BFDBFE" />
+                    <Text style={styles.heroMetaText}>
+                      {formatTime12Hour(currentClass.startTime)} – {formatTime12Hour(currentClass.endTime)}
+                    </Text>
+                  </View>
+                  <View style={styles.metaItem}>
+                    <MapPin size={14} color="#BFDBFE" />
+                    <Text style={styles.heroMetaText}>{currentClass.room}</Text>
+                  </View>
+                </View>
+
+                {currentClass.instructor || currentClass.faculty ? (
+                  <View style={[styles.metaItem, { marginTop: 6 }]}>
+                    <User size={13} color="#93C5FD" />
+                    <Text style={styles.instructorText}>
+                      {currentClass.instructor || currentClass.faculty}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : nextClass ? (
+              /* NEXT UP */
+              <View
+                style={[
+                  styles.nextHeroCard,
+                  { backgroundColor: colors.surface, borderColor: colors.primary },
+                ]}
+              >
+                <View style={styles.heroTopRow}>
+                  <View style={[styles.nextBadge, { backgroundColor: colors.surfaceVariant }]}>
+                    <Sparkles size={12} color={colors.primary} />
+                    <Text style={[styles.nextBadgeText, { color: colors.primary }]}>NEXT CLASS</Text>
+                  </View>
+                  <Text style={[styles.startsInText, { color: colors.textSecondary }]}>
+                    Starts in {minutesUntilNext}m ({formatTime12Hour(nextClass.startTime)})
+                  </Text>
+                </View>
+
+                <Text style={[styles.nextCourseName, { color: colors.text }]} numberOfLines={1}>
+                  {nextClass.courseName}
+                </Text>
+
+                <View style={styles.nextMetaRow}>
+                  <Text style={[styles.nextCourseCode, { color: colors.textSecondary }]}>
+                    {nextClass.courseCode} • {nextClass.type}
+                  </Text>
+                  <View style={styles.roomTag}>
+                    <MapPin size={12} color={colors.primary} />
+                    <Text style={[styles.roomTagText, { color: colors.primary }]}>
+                      {nextClass.room}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ) : classes.length > 0 ? (
+              /* ALL CLASSES DONE */
+              <View
+                style={[
+                  styles.doneCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+              >
+                <CheckCircle2 size={32} color="#10B981" />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.doneTitle, { color: colors.text }]}>
+                    All done for today!
+                  </Text>
+                  <Text style={[styles.doneSubtitle, { color: colors.textSecondary }]}>
+                    You've completed all scheduled classes for {actualDayOfWeek}.
+                  </Text>
+                </View>
+              </View>
+            ) : timetable.classes.length === 0 ? (
+              /* NO TIMETABLE YET */
+              <View
+                style={[
+                  styles.emptyCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+              >
+                <FileText size={36} color={colors.primary} />
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                  No timetable yet
+                </Text>
+                <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+                  Import your timetable PDF or add classes manually.
+                </Text>
+                <View style={styles.emptyActions}>
+                  <TouchableOpacity
+                    style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
+                    onPress={handleImportTimetable}
+                    disabled={isParsing}
+                  >
+                    <FileText size={16} color="#FFFFFF" />
+                    <Text style={styles.primaryBtnText}>Import Timetable PDF</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.outlineBtn, { borderColor: colors.primary }]}
+                    onPress={() => setActiveTab('timetable')}
+                  >
+                    <PlusCircle size={16} color={colors.primary} />
+                    <Text style={[styles.outlineBtnText, { color: colors.primary }]}>
+                      Add Classes Manually
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ) : (
-              <Text style={[styles.daySubtitle, { color: colors.textSecondary }]}>
-                {actualDayOfWeek} Schedule
-              </Text>
+              /* TIMETABLE CONFIGURED BUT NO CLASSES TODAY */
+              <View
+                style={[
+                  styles.emptyCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+              >
+                <Calendar size={36} color={colors.textTertiary} />
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                  No classes scheduled today
+                </Text>
+                <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+                  Your timetable for {actualDayOfWeek} has no classes scheduled.
+                </Text>
+                <View style={styles.emptyActions}>
+                  <TouchableOpacity
+                    style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
+                    onPress={() => setActiveTab('timetable')}
+                  >
+                    <Calendar size={16} color="#FFFFFF" />
+                    <Text style={styles.primaryBtnText}>View Full Timetable</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             )}
           </View>
-        </View>
-
-        {appliedOverrides.length > 0 && (
-          <TouchableOpacity
-            style={[styles.overrideBadge, { backgroundColor: '#EFF6FF', borderColor: colors.primary }]}
-            onPress={() => setActiveTab('changes')}
-          >
-            <Text style={[styles.overrideBadgeText, { color: colors.primary }]}>
-              {appliedOverrides.length} change{appliedOverrides.length > 1 ? 's' : ''} active
-            </Text>
-            <ArrowRight size={12} color={colors.primary} />
-          </TouchableOpacity>
         )}
-      </View>
 
-      {/* Holiday Banner */}
-      {isHoliday ? (
-        <View style={[styles.holidayCard, { backgroundColor: '#ECFDF5', borderColor: '#6EE7B7' }]}>
-          <View style={styles.holidayIconWrap}>
-            <PartyPopper size={28} color="#059669" />
+        {/* Timeline Section */}
+        {timelineItems.length > 0 && (
+          <View style={styles.timelineSection}>
+            <View style={styles.timelineHeader}>
+              <Text style={[styles.sectionHeading, { color: colors.text }]}>Today's Timeline</Text>
+              <Text style={[styles.sectionCount, { color: colors.textTertiary }]}>
+                {classes.length} class{classes.length !== 1 ? 'es' : ''}
+              </Text>
+            </View>
+
+            {timelineItems.map((item, idx) =>
+              item.type === 'class' ? (
+                <ClassCard key={`cls-${item.data.id}-${idx}`} classItem={item.data} />
+              ) : (
+                <FreePeriodCard key={`brk-${item.data.startTime}-${idx}`} freePeriod={item.data} />
+              )
+            )}
           </View>
-          <Text style={[styles.holidayTitle, { color: '#065F46' }]}>
-            {holidayTitle || 'Official College Holiday'}
-          </Text>
-          <Text style={[styles.holidaySub, { color: '#047857' }]}>
-            No academic classes scheduled today. Enjoy your day off!
-          </Text>
-        </View>
-      ) : isSpecialTimetable ? (
-        <View style={[styles.alertCard, { backgroundColor: '#FFFBEB', borderColor: '#FCD34D' }]}>
-          <AlertCircle size={18} color="#D97706" />
-          <Text style={[styles.alertText, { color: '#92400E' }]}>
-            Special Academic Day: {specialTimetableNote || `Running ${effectiveSourceDay} timetable`}.
-          </Text>
-        </View>
-      ) : null}
+        )}
 
-      {/* Hero Class Card (Happening Now or Next or Done) */}
-      {!isHoliday && (
-        <View style={styles.heroSection}>
-          {currentClass ? (
-            /* HAPPENING NOW */
-            <View style={[styles.heroCard, { backgroundColor: colors.primary }]}>
-              <View style={styles.heroTopRow}>
-                <View style={styles.liveIndicator}>
-                  <View style={styles.livePulse} />
-                  <Text style={styles.liveText}>HAPPENING NOW</Text>
-                </View>
-                <View style={styles.timeRemainingPill}>
-                  <Clock size={12} color="#FFFFFF" />
-                  <Text style={styles.timeRemainingText}>
-                    {minutesRemaining > 0 ? `${minutesRemaining}m left` : 'Ending now'}
-                  </Text>
-                </View>
-              </View>
-
-              <Text style={styles.heroCourseName} numberOfLines={2}>
-                {currentClass.courseName}
+        {/* Tomorrow's Preview */}
+        <View style={[styles.tomorrowCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.tomorrowHeader}>
+            <View>
+              <Text style={[styles.tomorrowLabel, { color: colors.primary }]}>AHEAD OF TIME</Text>
+              <Text style={[styles.tomorrowTitle, { color: colors.text }]}>
+                Tomorrow ({tomorrowSchedule.actualDayOfWeek})
               </Text>
-              <Text style={styles.heroCourseCode}>
-                {currentClass.courseCode} • {currentClass.type}
+              <Text style={[styles.tomorrowDate, { color: colors.textTertiary }]}>
+                {formatDatePretty(tomorrowSchedule.date)}
               </Text>
-
-              {/* Progress bar */}
-              <View style={styles.progressTrack}>
-                <View
-                  style={[
-                    styles.progressBar,
-                    { width: `${Math.min(100, Math.max(0, currentClass.progressPercent || 0))}%` },
-                  ]}
-                />
-              </View>
-
-              <View style={styles.heroMetaRow}>
-                <View style={styles.metaItem}>
-                  <Clock size={14} color="#BFDBFE" />
-                  <Text style={styles.heroMetaText}>
-                    {formatTime12Hour(currentClass.startTime)} – {formatTime12Hour(currentClass.endTime)}
-                  </Text>
-                </View>
-                <View style={styles.metaItem}>
-                  <MapPin size={14} color="#BFDBFE" />
-                  <Text style={styles.heroMetaText}>{currentClass.room}</Text>
-                </View>
-              </View>
-
-              {(currentClass.instructor || currentClass.faculty) ? (
-                <View style={[styles.metaItem, { marginTop: 6 }]}>
-                  <User size={13} color="#93C5FD" />
-                  <Text style={styles.instructorText}>
-                    {currentClass.instructor || currentClass.faculty}
-                  </Text>
-                </View>
-              ) : null}
             </View>
-          ) : nextClass ? (
-            /* NEXT UP */
-            <View
-              style={[
-                styles.nextHeroCard,
-                { backgroundColor: colors.surface, borderColor: colors.primary },
-              ]}
+            <TouchableOpacity
+              style={[styles.viewTomorrowBtn, { backgroundColor: colors.surfaceVariant }]}
+              onPress={() => setActiveTab('tomorrow')}
             >
-              <View style={styles.heroTopRow}>
-                <View style={[styles.nextBadge, { backgroundColor: colors.surfaceVariant }]}>
-                  <Sparkles size={12} color={colors.primary} />
-                  <Text style={[styles.nextBadgeText, { color: colors.primary }]}>NEXT CLASS</Text>
-                </View>
-                <Text style={[styles.startsInText, { color: colors.textSecondary }]}>
-                  Starts in {minutesUntilNext}m ({formatTime12Hour(nextClass.startTime)})
-                </Text>
-              </View>
+              <Text style={[styles.viewTomorrowText, { color: colors.primary }]}>View</Text>
+              <ArrowRight size={14} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
 
-              <Text style={[styles.nextCourseName, { color: colors.text }]} numberOfLines={1}>
-                {nextClass.courseName}
+          {tomorrowSchedule.isHoliday ? (
+            <View style={styles.tomorrowHoliday}>
+              <PartyPopper size={16} color="#059669" />
+              <Text style={styles.tomorrowHolidayText}>
+                Holiday: {tomorrowSchedule.holidayTitle || 'Day off'}
               </Text>
-
-              <View style={styles.nextMetaRow}>
-                <Text style={[styles.nextCourseCode, { color: colors.textSecondary }]}>
-                  {nextClass.courseCode} • {nextClass.type}
-                </Text>
-                <View style={styles.roomTag}>
-                  <MapPin size={12} color={colors.primary} />
-                  <Text style={[styles.roomTagText, { color: colors.primary }]}>
-                    {nextClass.room}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          ) : classes.length > 0 ? (
-            /* ALL CLASSES DONE */
-            <View
-              style={[
-                styles.doneCard,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}
-            >
-              <CheckCircle2 size={32} color="#10B981" />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.doneTitle, { color: colors.text }]}>
-                  All done for today!
-                </Text>
-                <Text style={[styles.doneSubtitle, { color: colors.textSecondary }]}>
-                  You've completed all scheduled classes for {actualDayOfWeek}.
-                </Text>
-              </View>
             </View>
           ) : (
-            /* NO CLASSES CONFIGURED */
-            <View
-              style={[
-                styles.emptyCard,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}
-            >
-              <Calendar size={36} color={colors.textTertiary} />
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                No classes scheduled today
-              </Text>
-              <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-                Your timetable for {actualDayOfWeek} is currently empty.
-              </Text>
-              <View style={styles.emptyActions}>
-                <TouchableOpacity
-                  style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
-                  onPress={() => setActiveTab('timetable')}
-                >
-                  <PlusCircle size={16} color="#FFFFFF" />
-                  <Text style={styles.primaryBtnText}>Add Class in Timetable</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.outlineBtn, { borderColor: colors.primary }]}
-                  onPress={enterDemoMode}
-                >
-                  <Sparkles size={16} color={colors.primary} />
-                  <Text style={[styles.outlineBtnText, { color: colors.primary }]}>
-                    Load Demo Timetable
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
+            <Text style={[styles.tomorrowSummary, { color: colors.textSecondary }]}>
+              {tomorrowSchedule.classes.length > 0
+                ? `${tomorrowSchedule.classes.length} class${
+                    tomorrowSchedule.classes.length > 1 ? 'es' : ''
+                  } scheduled, starting at ${formatTime12Hour(tomorrowSchedule.classes[0].startTime)}`
+                : 'No classes scheduled for tomorrow.'}
+            </Text>
           )}
         </View>
-      )}
+      </ScrollView>
 
-      {/* Timeline Section */}
-      {timelineItems.length > 0 && (
-        <View style={styles.timelineSection}>
-          <View style={styles.timelineHeader}>
-            <Text style={[styles.sectionHeading, { color: colors.text }]}>Today's Timeline</Text>
-            <Text style={[styles.sectionCount, { color: colors.textTertiary }]}>
-              {classes.length} class{classes.length !== 1 ? 'es' : ''}
-            </Text>
-          </View>
+      {/* Timetable Review Modal */}
+      <TimetableReviewModal
+        visible={showTimetableReview}
+        parsedResult={timetableResult}
+        onClose={() => setShowTimetableReview(false)}
+        hasExistingClasses={timetable.classes.length > 0}
+        onConfirm={async (newClasses, mode) => {
+          await importTimetableClasses(newClasses, mode);
+          setShowTimetableReview(false);
+        }}
+      />
 
-          {timelineItems.map((item, idx) =>
-            item.type === 'class' ? (
-              <ClassCard key={`cls-${item.data.id}-${idx}`} classItem={item.data} />
-            ) : (
-              <FreePeriodCard key={`brk-${item.data.startTime}-${idx}`} freePeriod={item.data} />
-            )
-          )}
-        </View>
-      )}
-
-      {/* Tomorrow's Preview */}
-      <View style={[styles.tomorrowCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <View style={styles.tomorrowHeader}>
-          <View>
-            <Text style={[styles.tomorrowLabel, { color: colors.primary }]}>AHEAD OF TIME</Text>
-            <Text style={[styles.tomorrowTitle, { color: colors.text }]}>
-              Tomorrow ({tomorrowSchedule.actualDayOfWeek})
-            </Text>
-            <Text style={[styles.tomorrowDate, { color: colors.textTertiary }]}>
-              {formatDatePretty(tomorrowSchedule.date)}
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={[styles.viewTomorrowBtn, { backgroundColor: colors.surfaceVariant }]}
-            onPress={() => setActiveTab('tomorrow')}
-          >
-            <Text style={[styles.viewTomorrowText, { color: colors.primary }]}>View</Text>
-            <ArrowRight size={14} color={colors.primary} />
-          </TouchableOpacity>
-        </View>
-
-        {tomorrowSchedule.isHoliday ? (
-          <View style={styles.tomorrowHoliday}>
-            <PartyPopper size={16} color="#059669" />
-            <Text style={styles.tomorrowHolidayText}>
-              Holiday: {tomorrowSchedule.holidayTitle || 'Day off'}
-            </Text>
-          </View>
-        ) : (
-          <Text style={[styles.tomorrowSummary, { color: colors.textSecondary }]}>
-            {tomorrowSchedule.classes.length > 0
-              ? `${tomorrowSchedule.classes.length} class${
-                  tomorrowSchedule.classes.length > 1 ? 'es' : ''
-                } scheduled, starting at ${formatTime12Hour(tomorrowSchedule.classes[0].startTime)}`
-              : 'No classes scheduled for tomorrow.'}
-          </Text>
-        )}
-      </View>
-    </ScrollView>
+      {/* Calendar Review Modal */}
+      <CalendarReviewModal
+        visible={showCalendarReview}
+        parsedResult={calendarResult}
+        onClose={() => setShowCalendarReview(false)}
+        hasExistingEntries={calendar.entries.length > 0}
+        onConfirm={async (newEntries, mode) => {
+          await importCalendarEntries(newEntries, mode);
+          setShowCalendarReview(false);
+        }}
+      />
+    </View>
   );
 };
 
@@ -367,6 +511,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 24,
+  },
+  demoModeBanner: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 12,
+  },
+  demoBannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  demoBannerTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#92400E',
+  },
+  demoBannerDesc: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: '#78350F',
+    marginBottom: 8,
+  },
+  demoSwitchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    backgroundColor: '#FDE68A',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  demoSwitchText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#78350F',
   },
   dateHeader: {
     flexDirection: 'row',
@@ -404,29 +586,57 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
     borderWidth: 1,
   },
   overrideBadgeText: {
     fontSize: 11,
     fontWeight: '700',
   },
+  calMissingCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  calMissingTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  calMissingSub: {
+    fontSize: 11,
+    marginTop: 1,
+    lineHeight: 15,
+  },
+  calImportBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  calImportBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
   holidayCard: {
     padding: 16,
-    borderRadius: 14,
-    borderWidth: 1.5,
+    borderRadius: 16,
+    borderWidth: 1,
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 16,
   },
   holidayIconWrap: {
     marginBottom: 6,
   },
   holidayTitle: {
     fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 2,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 4,
   },
   holidaySub: {
     fontSize: 12,
@@ -437,24 +647,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     padding: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     marginBottom: 14,
   },
   alertText: {
-    flex: 1,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
+    flex: 1,
   },
   heroSection: {
-    marginBottom: 16,
+    marginBottom: 20,
   },
   heroCard: {
-    borderRadius: 16,
     padding: 18,
+    borderRadius: 18,
     shadowColor: '#2563EB',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.25,
     shadowRadius: 10,
     elevation: 6,
   },
@@ -476,9 +685,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#34D399',
   },
   liveText: {
-    color: '#A7F3D0',
     fontSize: 11,
     fontWeight: '800',
+    color: '#FFFFFF',
     letterSpacing: 0.5,
   },
   timeRemainingPill: {
@@ -488,81 +697,81 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 12,
+    borderRadius: 10,
   },
   timeRemainingText: {
-    color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '700',
+    color: '#FFFFFF',
   },
   heroCourseName: {
-    color: '#FFFFFF',
-    fontSize: 19,
+    fontSize: 20,
     fontWeight: '800',
+    color: '#FFFFFF',
     marginBottom: 2,
   },
   heroCourseCode: {
-    color: '#DBEAFE',
     fontSize: 13,
     fontWeight: '600',
+    color: '#BFDBFE',
     marginBottom: 12,
   },
   progressTrack: {
-    height: 6,
+    height: 4,
     backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    borderRadius: 3,
-    overflow: 'hidden',
+    borderRadius: 2,
     marginBottom: 12,
+    overflow: 'hidden',
   },
   progressBar: {
     height: '100%',
-    backgroundColor: '#34D399',
-    borderRadius: 3,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 2,
   },
   heroMetaRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: 16,
   },
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
   },
   heroMetaText: {
-    color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
+    color: '#FFFFFF',
   },
   instructorText: {
-    color: '#BFDBFE',
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
+    color: '#E0E7FF',
   },
   nextHeroCard: {
-    borderRadius: 14,
-    borderWidth: 1.5,
     padding: 16,
+    borderRadius: 16,
+    borderWidth: 1.5,
   },
   nextBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   nextBadgeText: {
     fontSize: 11,
     fontWeight: '800',
+    letterSpacing: 0.5,
   },
   startsInText: {
     fontSize: 12,
     fontWeight: '600',
   },
   nextCourseName: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '800',
     marginTop: 8,
     marginBottom: 4,
   },
@@ -570,21 +779,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginTop: 4,
   },
   nextCourseCode: {
     fontSize: 12,
+    fontWeight: '600',
   },
   roomTag: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#EFF6FF',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
   },
   roomTagText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
   },
   doneCard: {
@@ -592,31 +799,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 14,
     padding: 16,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
   },
   doneTitle: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '800',
   },
   doneSubtitle: {
     fontSize: 12,
     marginTop: 2,
+    lineHeight: 16,
   },
   emptyCard: {
+    alignItems: 'center',
     padding: 24,
     borderRadius: 16,
     borderWidth: 1,
-    alignItems: 'center',
   },
   emptyTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '800',
     marginTop: 10,
+    marginBottom: 4,
   },
   emptySubtitle: {
     fontSize: 13,
-    marginTop: 4,
     marginBottom: 16,
     textAlign: 'center',
   },

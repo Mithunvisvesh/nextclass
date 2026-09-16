@@ -20,19 +20,32 @@ import {
   FlaskConical,
   Edit3,
   Calendar,
+  FileText,
 } from 'lucide-react-native';
 import { formatTime12Hour, parseTimeToMinutes } from '../../core/timeUtils';
+import { pickAndParseTimetable } from '../../services/pdf/fileImportService';
+import { TimetableReviewModal } from '../components/modals/TimetableReviewModal';
+import { ParsedTimetableResult } from '../../services/pdf/timetableParser';
 
 const DAYS: DayOfWeek[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export const TimetableScreen: React.FC = () => {
-  const { timetable, addTimetableClass, updateTimetableClass, deleteTimetableClass } =
-    useMobileSchedule();
+  const {
+    timetable,
+    addTimetableClass,
+    updateTimetableClass,
+    deleteTimetableClass,
+    importTimetableClasses,
+  } = useMobileSchedule();
   const { colors } = useTheme();
 
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>('Monday');
   const [modalVisible, setModalVisible] = useState(false);
   const [editingClass, setEditingClass] = useState<TimetableClass | null>(null);
+
+  const [isParsing, setIsParsing] = useState(false);
+  const [timetableResult, setTimetableResult] = useState<ParsedTimetableResult | null>(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
 
   // Filter and sort classes for the selected day
   const dayClasses = timetable.classes
@@ -59,6 +72,23 @@ export const TimetableScreen: React.FC = () => {
 
   const handleDeleteClass = async (id: string) => {
     await deleteTimetableClass(id);
+  };
+
+  const handleImportTimetable = async () => {
+    setIsParsing(true);
+    try {
+      const res = await pickAndParseTimetable();
+      if (!res.success) {
+        if (!res.isCancelled) {
+          Alert.alert('PDF Import Error', res.error);
+        }
+        return;
+      }
+      setTimetableResult(res.result);
+      setShowReviewModal(true);
+    } finally {
+      setIsParsing(false);
+    }
   };
 
   return (
@@ -133,7 +163,7 @@ export const TimetableScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* Day Header & Add Button */}
+        {/* Day Header & Action Buttons */}
         <View style={styles.dayHeader}>
           <View>
             <Text style={[styles.dayTitle, { color: colors.text }]}>{selectedDay}</Text>
@@ -142,19 +172,31 @@ export const TimetableScreen: React.FC = () => {
             </Text>
           </View>
 
-          <TouchableOpacity
-            style={[styles.addBtn, { backgroundColor: colors.primary }]}
-            onPress={handleOpenAdd}
-            activeOpacity={0.8}
-          >
-            <Plus size={16} color="#FFFFFF" />
-            <Text style={styles.addBtnText}>Add Class</Text>
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={[styles.importBtn, { backgroundColor: colors.surfaceVariant, borderColor: colors.border }]}
+              onPress={handleImportTimetable}
+              disabled={isParsing}
+              activeOpacity={0.8}
+            >
+              <FileText size={15} color={colors.primary} />
+              <Text style={[styles.importBtnText, { color: colors.primary }]}>Import PDF</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.addBtn, { backgroundColor: colors.primary }]}
+              onPress={handleOpenAdd}
+              activeOpacity={0.8}
+            >
+              <Plus size={16} color="#FFFFFF" />
+              <Text style={styles.addBtnText}>Add Class</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Classes List */}
+        {/* Classes List or Clean Empty States */}
         {dayClasses.length > 0 ? (
-          dayClasses.map((item, index) => {
+          dayClasses.map((item) => {
             const startM = parseTimeToMinutes(item.startTime);
             const endM = parseTimeToMinutes(item.endTime);
             const dur = endM - startM;
@@ -220,11 +262,11 @@ export const TimetableScreen: React.FC = () => {
                     </View>
                   </View>
 
-                  {(item.instructor || item.faculty) ? (
+                  {item.faculty ? (
                     <View style={[styles.detailItem, { marginTop: 4 }]}>
-                      <User size={12} color={colors.textTertiary} />
-                      <Text style={[styles.instructorText, { color: colors.textTertiary }]}>
-                        {item.instructor || item.faculty}
+                      <User size={13} color={colors.textTertiary} />
+                      <Text style={[styles.detailText, { color: colors.textSecondary }]}>
+                        {item.faculty}
                       </Text>
                     </View>
                   ) : null}
@@ -232,7 +274,43 @@ export const TimetableScreen: React.FC = () => {
               </TouchableOpacity>
             );
           })
+        ) : timetable.classes.length === 0 ? (
+          /* NO TIMETABLE YET */
+          <View
+            style={[
+              styles.emptyCard,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
+          >
+            <FileText size={36} color={colors.primary} />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>
+              No timetable yet
+            </Text>
+            <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+              Import your timetable PDF or add classes manually.
+            </Text>
+            <View style={styles.emptyActionRow}>
+              <TouchableOpacity
+                style={[styles.addEmptyBtn, { backgroundColor: colors.primary }]}
+                onPress={handleImportTimetable}
+                disabled={isParsing}
+              >
+                <FileText size={16} color="#FFFFFF" />
+                <Text style={styles.addEmptyBtnText}>Import Timetable PDF</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.outlineEmptyBtn, { borderColor: colors.primary }]}
+                onPress={handleOpenAdd}
+              >
+                <Plus size={16} color={colors.primary} />
+                <Text style={[styles.outlineEmptyText, { color: colors.primary }]}>
+                  Add Manually
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         ) : (
+          /* TIMETABLE CONFIGURED BUT NO CLASSES FOR SELECTED DAY */
           <View
             style={[
               styles.emptyCard,
@@ -244,7 +322,7 @@ export const TimetableScreen: React.FC = () => {
               No classes for {selectedDay}
             </Text>
             <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-              Add your lectures, labs, or tutorials to build your master timetable.
+              Add your lectures, labs, or tutorials for {selectedDay}.
             </Text>
             <TouchableOpacity
               style={[styles.addEmptyBtn, { backgroundColor: colors.primary }]}
@@ -266,6 +344,18 @@ export const TimetableScreen: React.FC = () => {
         initialData={editingClass}
         defaultDay={selectedDay}
       />
+
+      {/* Timetable PDF Review Modal */}
+      <TimetableReviewModal
+        visible={showReviewModal}
+        parsedResult={timetableResult}
+        onClose={() => setShowReviewModal(false)}
+        hasExistingClasses={timetable.classes.length > 0}
+        onConfirm={async (newClasses, mode) => {
+          await importTimetableClasses(newClasses, mode);
+          setShowReviewModal(false);
+        }}
+      />
     </View>
   );
 };
@@ -285,18 +375,12 @@ const styles = StyleSheet.create({
   dayTab: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 10,
+    borderRadius: 20,
+    gap: 6,
   },
-  dayTabActive: {
-    shadowColor: '#2563EB',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 2,
-  },
+  dayTabActive: {},
   dayTabText: {
     fontSize: 13,
     fontWeight: '700',
@@ -304,19 +388,18 @@ const styles = StyleSheet.create({
   countBadge: {
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 8,
+    borderRadius: 10,
   },
   countText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
   },
   scroll: {
     flex: 1,
   },
   content: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 24,
+    padding: 16,
+    paddingBottom: 32,
   },
   invariantCard: {
     flexDirection: 'row',
@@ -347,30 +430,48 @@ const styles = StyleSheet.create({
   },
   dayMeta: {
     fontSize: 12,
-    fontWeight: '500',
+    marginTop: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  importBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  importBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 8,
   },
   addBtnText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
   },
   classCard: {
     flexDirection: 'row',
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    overflow: 'hidden',
     marginBottom: 10,
+    overflow: 'hidden',
   },
   accentBar: {
-    width: 5,
+    width: 6,
   },
   cardMain: {
     flex: 1,
@@ -388,9 +489,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   courseCode: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: 0.3,
   },
   labBadge: {
     flexDirection: 'row',
@@ -401,7 +501,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   labText: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '800',
   },
   editAction: {
@@ -414,8 +514,7 @@ const styles = StyleSheet.create({
   },
   detailsRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
+    gap: 16,
   },
   detailItem: {
     flexDirection: 'row',
@@ -424,41 +523,56 @@ const styles = StyleSheet.create({
   },
   detailText: {
     fontSize: 12,
-    fontWeight: '500',
-  },
-  instructorText: {
-    fontSize: 11,
-    fontWeight: '500',
   },
   emptyCard: {
-    padding: 24,
-    borderRadius: 14,
-    borderWidth: 1,
     alignItems: 'center',
-    marginTop: 10,
+    padding: 28,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 12,
   },
   emptyTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginTop: 8,
+    fontSize: 17,
+    fontWeight: '800',
+    marginTop: 10,
+    marginBottom: 4,
   },
   emptySubtitle: {
-    fontSize: 12,
-    marginTop: 4,
-    marginBottom: 16,
+    fontSize: 13,
     textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 18,
+  },
+  emptyActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'center',
   },
   addEmptyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 10,
+    borderRadius: 10,
   },
   addEmptyBtnText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  outlineEmptyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  outlineEmptyText: {
+    fontSize: 13,
     fontWeight: '700',
   },
 });

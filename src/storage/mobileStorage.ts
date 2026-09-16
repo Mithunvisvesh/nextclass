@@ -13,6 +13,7 @@ export interface UserProfile {
   department?: string;
   semester: string;
   section: string;
+  academicYear?: string;
   studentId?: string;
   createdAt: string;
 }
@@ -31,17 +32,21 @@ export const EMPTY_PROFILE: UserProfile = {
   name: '',
   institution: '',
   course: '',
+  department: '',
   semester: '',
   section: '',
+  academicYear: '2026–27',
   createdAt: new Date().toISOString()
 };
 
 export const DEMO_PROFILE: UserProfile = {
   name: 'Alex Student',
   institution: 'Amrita School of Computing',
-  course: 'B.Tech Computer Science & Engineering',
-  semester: 'Semester 5 (Odd 2026-27)',
+  course: 'Computer Science & Engineering',
+  department: 'Computer Science & Engineering',
+  semester: 'Semester 5',
   section: 'Section C',
+  academicYear: '2026–27',
   studentId: 'BL.EN.U4CSE23000',
   createdAt: '2026-07-27T08:00:00Z'
 };
